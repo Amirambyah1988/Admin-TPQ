@@ -1,0 +1,434 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Reusable Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedEmail() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isVerifiedEmail() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'nurulislam.cangkiran@gmail.com'
+      );
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidAdminEntry(data) {
+      return data.keys().hasAll(['uid', 'email', 'nama', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'nama', 'createdAt']) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 150 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'role', 'nama', 'email', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'role', 'nama', 'email', 'santriId', 'asatidzId', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.role in ['asatidz', 'santri'] &&
+        data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 150 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        (!('santriId' in data) || (data.santriId is string && data.santriId.size() <= 128)) &&
+        (!('asatidzId' in data) || (data.asatidzId is string && data.asatidzId.size() <= 128)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTpqProfile(data) {
+      return data.keys().hasAll(['nama', 'alamat', 'rekeningList', 'isPublicProfile', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'nama', 'logo', 'alamat', 'tahunBerdiri', 'badanHukum',
+          'noSkKemenag', 'telepon', 'email', 'rekeningList', 'isPublicProfile', 'updatedAt'
+        ]) &&
+        data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 150 &&
+        (!('logo' in data) || (data.logo is string && data.logo.size() <= 500)) &&
+        data.alamat is string && data.alamat.size() >= 1 && data.alamat.size() <= 350 &&
+        (!('tahunBerdiri' in data) || (data.tahunBerdiri is string && data.tahunBerdiri.size() <= 20)) &&
+        (!('badanHukum' in data) || (data.badanHukum is string && data.badanHukum.size() <= 150)) &&
+        (!('noSkKemenag' in data) || (data.noSkKemenag is string && data.noSkKemenag.size() <= 120)) &&
+        (!('telepon' in data) || (data.telepon is string && data.telepon.size() <= 50)) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+        data.rekeningList is list && data.rekeningList.size() >= 1 && data.rekeningList.size() <= 10 &&
+        data.rekeningList[0] is map &&
+        data.isPublicProfile is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAsatidz(data) {
+      return data.keys().hasAll(['nama', 'nik', 'mengajar', 'statusAktif', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'nama', 'nik', 'username', 'password', 'tempatLahir', 'tanggalLahir',
+          'pendidikan', 'mengajar', 'alamat', 'tanggalMulaiTugas', 'foto',
+          'noHp', 'statusAktif', 'updatedAt'
+        ]) &&
+        data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 150 &&
+        data.nik is string && data.nik.size() >= 4 && data.nik.size() <= 40 &&
+        (!('username' in data) || (data.username is string && data.username.size() <= 80)) &&
+        (!('password' in data) || (data.password is string && data.password.size() <= 120)) &&
+        (!('tempatLahir' in data) || (data.tempatLahir is string && data.tempatLahir.size() <= 100)) &&
+        (!('tanggalLahir' in data) || (data.tanggalLahir is string && data.tanggalLahir.size() <= 30)) &&
+        (!('pendidikan' in data) || (data.pendidikan is string && data.pendidikan.size() <= 150)) &&
+        data.mengajar in ['Iqro', "Al-Qur'an", 'Keduanya'] &&
+        (!('alamat' in data) || (data.alamat is string && data.alamat.size() <= 350)) &&
+        (!('tanggalMulaiTugas' in data) || (data.tanggalMulaiTugas is string && data.tanggalMulaiTugas.size() <= 30)) &&
+        (!('foto' in data) || (data.foto is string && data.foto.size() <= 500)) &&
+        (!('noHp' in data) || (data.noHp is string && data.noHp.size() <= 50)) &&
+        data.statusAktif is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSantri(data) {
+      return data.keys().hasAll(['nama', 'nik', 'jilid', 'username', 'jenisKelamin', 'ownerUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'nama', 'nik', 'tempatLahir', 'tanggalLahir', 'alamat', 'terdaftarTanggal',
+          'foto', 'namaWali', 'noHpWali', 'jilid', 'username', 'password',
+          'jenisKelamin', 'ownerUid', 'createdAt', 'updatedAt'
+        ]) &&
+        data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 150 &&
+        data.nik is string && data.nik.size() >= 4 && data.nik.size() <= 40 &&
+        (!('tempatLahir' in data) || (data.tempatLahir is string && data.tempatLahir.size() <= 100)) &&
+        (!('tanggalLahir' in data) || (data.tanggalLahir is string && data.tanggalLahir.size() <= 30)) &&
+        (!('alamat' in data) || (data.alamat is string && data.alamat.size() <= 350)) &&
+        (!('terdaftarTanggal' in data) || (data.terdaftarTanggal is string && data.terdaftarTanggal.size() <= 30)) &&
+        (!('foto' in data) || (data.foto is string && data.foto.size() <= 500)) &&
+        (!('namaWali' in data) || (data.namaWali is string && data.namaWali.size() <= 150)) &&
+        (!('noHpWali' in data) || (data.noHpWali is string && data.noHpWali.size() <= 50)) &&
+        data.jilid is string && data.jilid.size() >= 1 && data.jilid.size() <= 50 &&
+        data.username is string && data.username.size() >= 3 && data.username.size() <= 120 &&
+        (!('password' in data) || (data.password is string && data.password.size() <= 120)) &&
+        data.jenisKelamin in ['L', 'P'] &&
+        data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSantriPublic(data) {
+      return data.keys().hasAll(['nama', 'jilid', 'paidMonths', 'isPublicSummary', 'updatedAt']) &&
+        data.keys().hasOnly(['nama', 'jilid', 'foto', 'paidMonths', 'isPublicSummary', 'updatedAt']) &&
+        data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 150 &&
+        data.jilid is string && data.jilid.size() >= 1 && data.jilid.size() <= 50 &&
+        (!('foto' in data) || (data.foto is string && data.foto.size() <= 500)) &&
+        data.paidMonths is list && data.paidMonths.size() <= 24 &&
+        (data.paidMonths.size() == 0 || data.paidMonths[0] is string) &&
+        data.isPublicSummary is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidHafalanMaster(data) {
+      return data.keys().hasAll(['kategori', 'judul', 'isPublicCurriculum', 'updatedAt']) &&
+        data.keys().hasOnly(['kategori', 'judul', 'deskripsi', 'arabic', 'isPublicCurriculum', 'updatedAt']) &&
+        data.kategori in ['surat', 'doa', 'hadist', 'shalat', 'custom'] &&
+        data.judul is string && data.judul.size() >= 1 && data.judul.size() <= 200 &&
+        (!('deskripsi' in data) || (data.deskripsi is string && data.deskripsi.size() <= 400)) &&
+        (!('arabic' in data) || (data.arabic is string && data.arabic.size() <= 1000)) &&
+        data.isPublicCurriculum is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidHafalanStatus(data) {
+      return data.keys().hasAll(['santriId', 'ownerUid', 'hafalanId', 'lancar', 'updatedAt']) &&
+        data.keys().hasOnly(['santriId', 'ownerUid', 'hafalanId', 'lancar', 'tanggalLancar', 'catatan', 'updatedAt']) &&
+        isValidId(data.santriId) &&
+        data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+        isValidId(data.hafalanId) &&
+        data.lancar is bool &&
+        (!('tanggalLancar' in data) || (data.tanggalLancar is string && data.tanggalLancar.size() <= 30)) &&
+        (!('catatan' in data) || (data.catatan is string && data.catatan.size() <= 400)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProgressLog(data) {
+      return data.keys().hasAll(['santriId', 'ownerUid', 'tanggal', 'jenisBacaan', 'jilidAtauSurat', 'lancar', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['santriId', 'ownerUid', 'tanggal', 'jenisBacaan', 'jilidAtauSurat', 'halamanAyat', 'lancar', 'catatanGuru', 'asatidzNama', 'createdAt', 'updatedAt']) &&
+        isValidId(data.santriId) &&
+        data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+        data.tanggal is string && data.tanggal.size() >= 1 && data.tanggal.size() <= 30 &&
+        data.jenisBacaan in ['Iqro', "Al-Qur'an"] &&
+        data.jilidAtauSurat is string && data.jilidAtauSurat.size() >= 1 && data.jilidAtauSurat.size() <= 120 &&
+        (!('halamanAyat' in data) || (data.halamanAyat is string && data.halamanAyat.size() <= 120)) &&
+        data.lancar is bool &&
+        (!('catatanGuru' in data) || (data.catatanGuru is string && data.catatanGuru.size() <= 500)) &&
+        (!('asatidzNama' in data) || (data.asatidzNama is string && data.asatidzNama.size() <= 150)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAbsensiSantri(data) {
+      return data.keys().hasAll(['tanggal', 'santriId', 'ownerUid', 'status', 'updatedAt']) &&
+        data.keys().hasOnly(['tanggal', 'santriId', 'ownerUid', 'status', 'keterangan', 'updatedAt']) &&
+        data.tanggal is string && data.tanggal.size() >= 1 && data.tanggal.size() <= 30 &&
+        isValidId(data.santriId) &&
+        data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+        data.status in ['Hadir', 'Sakit', 'Izin', 'Alpa'] &&
+        (!('keterangan' in data) || (data.keterangan is string && data.keterangan.size() <= 300)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAbsensiAsatidz(data) {
+      return data.keys().hasAll(['tanggal', 'asatidzId', 'jamMasuk', 'status', 'updatedAt']) &&
+        data.keys().hasOnly(['tanggal', 'asatidzId', 'jamMasuk', 'status', 'keterangan', 'updatedAt']) &&
+        data.tanggal is string && data.tanggal.size() >= 1 && data.tanggal.size() <= 30 &&
+        isValidId(data.asatidzId) &&
+        data.jamMasuk is string && data.jamMasuk.size() <= 20 &&
+        data.status in ['Hadir', 'Sakit', 'Izin', 'Alpa'] &&
+        (!('keterangan' in data) || (data.keterangan is string && data.keterangan.size() <= 300)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSyahriah(data) {
+      return data.keys().hasAll([
+          'santriId', 'ownerUid', 'bulanList', 'nominalPerBulan', 'totalNominal',
+          'tanggalBayar', 'metode', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'santriId', 'ownerUid', 'bulanList', 'nominalPerBulan', 'totalNominal',
+          'tanggalBayar', 'metode', 'bankTujuan', 'buktiTransferUrl', 'status',
+          'catatan', 'diverifikasiOleh', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.santriId) &&
+        data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+        data.bulanList is list && data.bulanList.size() >= 1 && data.bulanList.size() <= 12 &&
+        data.bulanList[0] is string &&
+        data.nominalPerBulan is number && data.nominalPerBulan > 0 &&
+        data.totalNominal is number && data.totalNominal > 0 &&
+        data.tanggalBayar is string && data.tanggalBayar.size() >= 1 && data.tanggalBayar.size() <= 30 &&
+        data.metode in ['Transfer Bank', 'Tunai'] &&
+        (!('bankTujuan' in data) || (data.bankTujuan is string && data.bankTujuan.size() <= 150)) &&
+        (!('buktiTransferUrl' in data) || (data.buktiTransferUrl is string && data.buktiTransferUrl.size() <= 500)) &&
+        data.status in ['Lunas', 'Menunggu Konfirmasi', 'Dibatalkan'] &&
+        (!('catatan' in data) || (data.catatan is string && data.catatan.size() <= 400)) &&
+        (!('diverifikasiOleh' in data) || (data.diverifikasiOleh is string && data.diverifikasiOleh.size() <= 150)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidLaporanKeuangan(data) {
+      return data.keys().hasAll(['no', 'tanggal', 'uraian', 'jenis', 'nominal', 'saldo', 'isPublicReport', 'updatedAt']) &&
+        data.keys().hasOnly(['no', 'tanggal', 'uraian', 'jenis', 'nominal', 'saldo', 'keterangan', 'isPublicReport', 'updatedAt']) &&
+        data.no is number &&
+        data.tanggal is string && data.tanggal.size() >= 1 && data.tanggal.size() <= 30 &&
+        data.uraian is string && data.uraian.size() >= 1 && data.uraian.size() <= 300 &&
+        data.jenis in ['Masuk', 'Keluar'] &&
+        data.nominal is number && data.nominal >= 0 &&
+        data.saldo is number &&
+        (!('keterangan' in data) || (data.keterangan is string && data.keterangan.size() <= 300)) &&
+        data.isPublicReport is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDokumentasi(data) {
+      return data.keys().hasAll(['judul', 'tanggal', 'kategori', 'fotoUrl', 'isPublicGallery', 'createdAt']) &&
+        data.keys().hasOnly(['judul', 'tanggal', 'kategori', 'deskripsi', 'fotoUrl', 'dibuatOleh', 'isPublicGallery', 'createdAt']) &&
+        data.judul is string && data.judul.size() >= 1 && data.judul.size() <= 200 &&
+        data.tanggal is string && data.tanggal.size() >= 1 && data.tanggal.size() <= 30 &&
+        data.kategori is string && data.kategori.size() >= 1 && data.kategori.size() <= 100 &&
+        (!('deskripsi' in data) || (data.deskripsi is string && data.deskripsi.size() <= 800)) &&
+        data.fotoUrl is string && data.fotoUrl.size() >= 1 && data.fotoUrl.size() <= 500 &&
+        (!('dibuatOleh' in data) || (data.dibuatOleh is string && data.dibuatOleh.size() <= 150)) &&
+        data.isPublicGallery is bool &&
+        data.createdAt is timestamp;
+    }
+
+    // 4. Collection Rules
+
+    // Connection health check doc
+    match /test/connection {
+      allow get: if isSignedIn();
+    }
+
+    // Admin UID registry (strictly admin-managed, never self-registered)
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(uid) && isValidAdminEntry(incoming()) && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(uid) && isValidAdminEntry(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(uid);
+    }
+
+    // User role profiles (PII-isolated; Santri cannot self-assign 'asatidz')
+    match /users/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isVerifiedEmail() && isValidId(uid) && isValidUserProfile(incoming()) &&
+        incoming().uid == uid && incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(uid) && incoming().role == 'santri')
+        );
+      allow update: if isVerifiedEmail() && isValidId(uid) && isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid && incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(uid) && incoming().role == existing().role &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['nama', 'santriId', 'updatedAt']))
+        );
+      allow delete: if isAdmin() && isValidId(uid);
+    }
+
+    // TPQ Profile (public read for signed-in users, admin-only write)
+    match /tpq_profile/{profileId} {
+      allow get: if isValidId(profileId) && isSignedIn() && existing().isPublicProfile == true;
+      allow list: if isAdmin() || (isSignedIn() && resource.data.isPublicProfile == true);
+      allow create: if isAdmin() && isValidId(profileId) && isValidTpqProfile(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(profileId) && isValidTpqProfile(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(profileId);
+    }
+
+    // Asatidz private directory (strictly Admin-only: Santri/Wali cannot read or write)
+    match /asatidz/{asatidzId} {
+      allow get: if isValidId(asatidzId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(asatidzId) && isValidAsatidz(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(asatidzId) && isValidAsatidz(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(asatidzId);
+    }
+
+    // Santri private PII records
+    match /santri/{santriId} {
+      allow get: if isValidId(santriId) && (isAdmin() || (isSignedIn() && existing().ownerUid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isVerifiedEmail() && isValidId(santriId) && isValidSantri(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time && (
+          isAdmin() ||
+          incoming().ownerUid == request.auth.uid
+        );
+      allow update: if isVerifiedEmail() && isValidId(santriId) && isValidSantri(incoming()) &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (existing().ownerUid == request.auth.uid &&
+            incoming().ownerUid == existing().ownerUid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['nama', 'alamat', 'noHpWali', 'foto', 'updatedAt']))
+        );
+      allow delete: if isAdmin() && isValidId(santriId);
+    }
+
+    // Santri non-PII public summary for Syahriah payment transparency
+    match /santri_public/{santriId} {
+      allow get: if isValidId(santriId) && (isAdmin() || (isSignedIn() && existing().isPublicSummary == true));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.isPublicSummary == true);
+      allow create: if isAdmin() && isValidId(santriId) && isValidSantriPublic(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(santriId) && isValidSantriPublic(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(santriId);
+    }
+
+    // Curriculum master items
+    match /hafalan_master/{hafalanId} {
+      allow get: if isValidId(hafalanId) && (isAdmin() || (isSignedIn() && existing().isPublicCurriculum == true));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.isPublicCurriculum == true);
+      allow create: if isAdmin() && isValidId(hafalanId) && isValidHafalanMaster(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(hafalanId) && isValidHafalanMaster(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(hafalanId);
+    }
+
+    // Santri hafalan fluency status
+    match /hafalan_status/{statusId} {
+      allow get: if isValidId(statusId) && (isAdmin() || (isSignedIn() && existing().ownerUid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isAdmin() && isValidId(statusId) && isValidHafalanStatus(incoming()) &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/santri/$(incoming().santriId));
+      allow update: if isAdmin() && isValidId(statusId) && isValidHafalanStatus(incoming()) &&
+        incoming().santriId == existing().santriId && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(statusId);
+    }
+
+    // Daily Iqro / Al-Qur'an progress logs
+    match /progress_logs/{logId} {
+      allow get: if isValidId(logId) && (isAdmin() || (isSignedIn() && existing().ownerUid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isAdmin() && isValidId(logId) && isValidProgressLog(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/santri/$(incoming().santriId));
+      allow update: if isAdmin() && isValidId(logId) && isValidProgressLog(incoming()) &&
+        incoming().santriId == existing().santriId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(logId);
+    }
+
+    // Santri attendance records
+    match /absensi_santri/{absensiId} {
+      allow get: if isValidId(absensiId) && (isAdmin() || (isSignedIn() && existing().ownerUid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isAdmin() && isValidId(absensiId) && isValidAbsensiSantri(incoming()) &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/santri/$(incoming().santriId));
+      allow update: if isAdmin() && isValidId(absensiId) && isValidAbsensiSantri(incoming()) &&
+        incoming().santriId == existing().santriId && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(absensiId);
+    }
+
+    // Asatidz attendance records (Admin-only)
+    match /absensi_asatidz/{absensiId} {
+      allow get: if isValidId(absensiId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(absensiId) && isValidAbsensiAsatidz(incoming()) &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/asatidz/$(incoming().asatidzId));
+      allow update: if isAdmin() && isValidId(absensiId) && isValidAbsensiAsatidz(incoming()) &&
+        incoming().asatidzId == existing().asatidzId && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(absensiId);
+    }
+
+    // Monthly Syahriah payments & transfer proof submissions
+    match /syahriah/{syahriahId} {
+      allow get: if isValidId(syahriahId) && (isAdmin() || (isSignedIn() && existing().ownerUid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isVerifiedEmail() && isValidId(syahriahId) && isValidSyahriah(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/santri/$(incoming().santriId)) && (
+          isAdmin() ||
+          (incoming().ownerUid == request.auth.uid && incoming().status == 'Menunggu Konfirmasi')
+        );
+      allow update: if isAdmin() && isValidId(syahriahId) && isValidSyahriah(incoming()) &&
+        incoming().santriId == existing().santriId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status == 'Menunggu Konfirmasi' || existing().status == 'Lunas' || existing().status == 'Dibatalkan') &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'diverifikasiOleh', 'catatan', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(syahriahId);
+    }
+
+    // Transparent cash ledger (public read for signed-in users, Admin-only write)
+    match /laporan_keuangan/{kasId} {
+      allow get: if isValidId(kasId) && (isAdmin() || (isSignedIn() && existing().isPublicReport == true));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.isPublicReport == true);
+      allow create: if isAdmin() && isValidId(kasId) && isValidLaporanKeuangan(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(kasId) && isValidLaporanKeuangan(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(kasId);
+    }
+
+    // Activity photo gallery (public read for signed-in users, Admin-only write)
+    match /dokumentasi/{dokId} {
+      allow get: if isValidId(dokId) && (isAdmin() || (isSignedIn() && existing().isPublicGallery == true));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.isPublicGallery == true);
+      allow create: if isAdmin() && isValidId(dokId) && isValidDokumentasi(incoming()) && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(dokId) && isValidDokumentasi(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(dokId);
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Informasi TPQ Digital",
+  "description": "Aplikasi Manajemen Taman Pendidikan Al-Qur'an Modern & Mobile-Friendly dengan Dashboard Asatidz, Santri, Log Progres Hafalan, Syahriah & Kartu Digital",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
